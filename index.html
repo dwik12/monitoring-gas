@@ -1,0 +1,430 @@
+
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Monitoring Gas MQ-2</title>
+
+    <!-- Library Grafik -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: Arial, sans-serif;
+        }
+
+        body {
+            background: #f1f5f9;
+            color: #1e293b;
+        }
+
+        header {
+            background: #172554;
+            color: white;
+            padding: 25px 5%;
+        }
+
+        header h1 {
+            font-size: 25px;
+        }
+
+        header p {
+            color: #cbd5e1;
+            margin-top: 8px;
+        }
+
+        .container {
+            max-width: 1100px;
+            margin: 30px auto;
+            padding: 0 20px;
+        }
+
+        .connection {
+            margin-bottom: 20px;
+            color: #64748b;
+            font-size: 14px;
+        }
+
+        .cards {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 20px;
+        }
+
+        .card {
+            background: white;
+            padding: 25px;
+            border-radius: 12px;
+            box-shadow: 0 3px 12px #0000000d;
+        }
+
+        .card h3 {
+            color: #64748b;
+            font-size: 15px;
+            margin-bottom: 15px;
+        }
+
+        .value {
+            font-size: 30px;
+            font-weight: bold;
+        }
+
+        .normal {
+            color: #16a34a;
+        }
+
+        .danger {
+            color: #dc2626;
+        }
+
+        .chart-box, .history {
+            background: white;
+            margin-top: 25px;
+            padding: 25px;
+            border-radius: 12px;
+            box-shadow: 0 3px 12px #0000000d;
+        }
+
+        .chart-box h2, .history h2 {
+            margin-bottom: 20px;
+            font-size: 20px;
+        }
+
+        .table-wrap {
+            overflow-x: auto;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        th, td {
+            padding: 13px;
+            text-align: center;
+            border-bottom: 1px solid #e2e8f0;
+        }
+
+        th {
+            background: #f8fafc;
+        }
+
+        .status-text {
+            font-weight: bold;
+        }
+
+        footer {
+            text-align: center;
+            padding: 25px;
+            color: #64748b;
+        }
+
+        @media (max-width: 600px) {
+            .cards {
+                grid-template-columns: 1fr;
+            }
+
+            header h1 {
+                font-size: 20px;
+            }
+        }
+    </style>
+</head>
+
+<body>
+
+<header>
+    <h1>GAS MONITORING SYSTEM</h1>
+    <p>Sistem Monitoring Gas ESP32 dan Sensor MQ-2</p>
+</header>
+
+<div class="container">
+
+    <div class="connection" id="connection">
+        Menghubungkan ke ThingSpeak...
+    </div>
+
+    <!-- KARTU INFORMASI -->
+    <div class="cards">
+
+        <div class="card">
+            <h3>Nilai Gas MQ-2</h3>
+            <div class="value" id="gasValue">--</div>
+        </div>
+
+        <div class="card">
+            <h3>Status Gas</h3>
+            <div class="value" id="gasStatus">--</div>
+        </div>
+
+        <div class="card">
+            <h3>Status Buzzer</h3>
+            <div class="value" id="buzzerStatus">--</div>
+        </div>
+
+        <div class="card">
+            <h3>Ambang Batas Gas</h3>
+            <div class="value">1800</div>
+        </div>
+
+    </div>
+
+    <!-- GRAFIK -->
+    <div class="chart-box">
+        <h2>Grafik Monitoring Gas</h2>
+        <canvas id="gasChart"></canvas>
+    </div>
+
+    <!-- RIWAYAT -->
+    <div class="history">
+        <h2>Riwayat Pembacaan Sensor</h2>
+
+        <div class="table-wrap">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Waktu</th>
+                        <th>Nilai Gas</th>
+                        <th>Status</th>
+                    </tr>
+                </thead>
+
+                <tbody id="historyData">
+                    <tr>
+                        <td colspan="3">Menunggu data...</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+</div>
+
+<footer>
+    Sistem Monitoring Gas Berbasis IoT
+    <br>
+    ESP32 + MQ-2 | Tugas UAS Pemrograman Web
+</footer>
+
+<script>
+
+// ======================================
+// KONFIGURASI THINGSPEAK
+// ======================================
+
+// GANTI DENGAN CHANNEL ID MILIK KAMU
+const CHANNEL_ID = "3597315";
+
+// Jika Channel Public, biarkan kosong
+// Jika Private, isi dengan Read API Key
+const READ_API_KEY = "C9P7VMQ2QMQP4CFR";
+
+// Ambang batas gas
+const THRESHOLD = 1800;
+
+
+// ======================================
+// MEMBUAT GRAFIK
+// ======================================
+
+const chart = new Chart(
+    document.getElementById("gasChart"),
+    {
+        type: "line",
+
+        data: {
+            labels: [],
+
+            datasets: [{
+                label: "Nilai Gas MQ-2",
+                data: [],
+                borderColor: "#2563eb",
+                backgroundColor: "#93c5fd",
+                borderWidth: 3,
+                tension: 0.3
+            }]
+        },
+
+        options: {
+            responsive: true,
+
+            scales: {
+                y: {
+                    beginAtZero: true,
+                    max: 4095
+                }
+            }
+        }
+    }
+);
+
+
+// ======================================
+// MENGAMBIL DATA DARI THINGSPEAK
+// ======================================
+
+async function getSensorData() {
+
+    const connection =
+        document.getElementById("connection");
+
+    try {
+
+        let url =
+        `https://api.thingspeak.com/channels/${CHANNEL_ID}/feeds.json?results=10`;
+
+        if (READ_API_KEY !== "") {
+            url += `&api_key=${READ_API_KEY}`;
+        }
+
+        const response = await fetch(url);
+
+        if (!response.ok) {
+            throw new Error("Gagal mengambil data");
+        }
+
+        const result = await response.json();
+
+        const feeds = result.feeds;
+
+        if (!feeds || feeds.length === 0) {
+            throw new Error("Belum ada data sensor");
+        }
+
+        // Mengambil data terbaru
+        const latest = feeds[feeds.length - 1];
+
+        const gas = Number(latest.field1);
+
+        if (!Number.isFinite(gas)) {
+            throw new Error("Data sensor tidak valid");
+        }
+
+        const status = Number(latest.field2);
+        const buzzer = Number(latest.field3);
+
+        // Jika field status kosong, gunakan threshold
+        const bahaya = latest.field2 === null
+            ? gas > THRESHOLD
+            : status === 1;
+
+        const buzzerAktif = latest.field3 === null
+            ? bahaya
+            : buzzer === 1;
+
+
+        // MENAMPILKAN NILAI SENSOR
+        document.getElementById("gasValue")
+            .textContent = gas;
+
+
+        // MENAMPILKAN STATUS GAS
+        const gasStatus =
+            document.getElementById("gasStatus");
+
+        gasStatus.textContent =
+            bahaya ? "BAHAYA" : "NORMAL";
+
+        gasStatus.className =
+            "value " + (bahaya ? "danger" : "normal");
+
+
+        // MENAMPILKAN STATUS BUZZER
+        const buzzerStatus =
+            document.getElementById("buzzerStatus");
+
+        buzzerStatus.textContent =
+            buzzerAktif ? "AKTIF" : "MATI";
+
+        buzzerStatus.className =
+            "value " + (buzzerAktif ? "danger" : "normal");
+
+
+        // STATUS KONEKSI
+        connection.textContent =
+            "● Terhubung | Pembaruan terakhir: " +
+            new Date(latest.created_at).toLocaleTimeString("id-ID");
+
+
+        // MEMPERBARUI GRAFIK
+        chart.data.labels = feeds.map(item => {
+
+            return new Date(item.created_at)
+                .toLocaleTimeString("id-ID");
+
+        });
+
+        chart.data.datasets[0].data =
+            feeds.map(item => Number(item.field1));
+
+        chart.update();
+
+
+        // MENAMPILKAN RIWAYAT
+        const history =
+            document.getElementById("historyData");
+
+        history.innerHTML = "";
+
+        [...feeds].reverse().forEach(item => {
+
+            const value = Number(item.field1);
+
+            const isDanger = item.field2 === null
+                ? value > THRESHOLD
+                : Number(item.field2) === 1;
+
+            const row = document.createElement("tr");
+
+            const time = new Date(item.created_at)
+                .toLocaleString("id-ID");
+
+            const timeCell = document.createElement("td");
+            const valueCell = document.createElement("td");
+            const statusCell = document.createElement("td");
+
+            timeCell.textContent = time;
+            valueCell.textContent = value;
+            statusCell.textContent =
+                isDanger ? "BAHAYA" : "NORMAL";
+
+            statusCell.style.color =
+                isDanger ? "#dc2626" : "#16a34a";
+
+            statusCell.style.fontWeight = "bold";
+
+            row.append(timeCell, valueCell, statusCell);
+            history.appendChild(row);
+
+        });
+
+    }
+
+    catch (error) {
+
+        console.error(error);
+
+        connection.textContent =
+            "● Gagal mengambil data: " + error.message;
+
+    }
+
+}
+
+
+// ======================================
+// UPDATE DATA SETIAP 5 DETIK
+// ======================================
+
+getSensorData();
+
+setInterval(getSensorData, 5000);
+
+</script>
+
+</body>
+</html>
